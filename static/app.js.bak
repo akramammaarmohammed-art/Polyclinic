@@ -1,0 +1,1558 @@
+//const API_URL = "http://127.0.0.1:8000"; 
+const API_URL = "";
+console.log("APP.JS LOADED (v35)");
+
+
+// --- State ---
+const state = {
+    token: localStorage.getItem('token'),
+    role: localStorage.getItem('role'),
+    username: localStorage.getItem('username')
+};
+
+function getTimeOptions() {
+    let options = '';
+    // 8 AM to 10 PM (22)
+    for (let i = 8; i < 22; i++) {
+        // Value must be HH:MM:00 (24h) for backend
+        const h = i < 10 ? '0' + i : i;
+        const value = `${h}:00:00`;
+
+        // Label logic
+        let startH = i;
+        let endH = i + 1;
+        let startAm = startH < 12 ? 'AM' : 'PM';
+        let endAm = endH < 12 ? 'AM' : 'PM'; // Though 12 is PM
+
+        if (startH > 12) startH -= 12;
+        if (endH > 12) endH -= 12;
+        if (endH === 12 && i !== 11) endAm = 'PM'; // 12 PM
+        if (endH === 12 && i === 23) endAm = 'AM'; // Midnight edge case (not needed here)
+
+        // 12 PM fix
+        if (i === 12) startAm = 'PM';
+
+        const label = `${startH} ${startAm} - ${endH} ${endAm}`;
+
+        options += `<option value="${value}">${label}</option>`;
+    }
+    return options;
+}
+
+
+
+// --- DOM Elements ---
+const app = document.getElementById('app');
+
+// --- Auth Functions ---
+function toggleAuth(mode) {
+    document.getElementById('login-form').style.display = mode === 'login' ? 'block' : 'none';
+    document.getElementById('signup-form').style.display = mode === 'signup' ? 'block' : 'none';
+    document.getElementById('alert-box').style.display = 'none';
+}
+
+async function signup(username, password) {
+    try {
+        const response = await fetch(`${API_URL}/auth/signup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username,
+                password,
+                role: 'Customer'
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail);
+        }
+
+        showAlert("Account created! Please login.", 'success');
+        toggleAuth('login');
+    } catch (err) {
+        showAlert(err.message, 'error');
+    }
+}
+
+async function login(username, password) {
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+
+    try {
+        const response = await fetch(`${API_URL}/auth/login`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.detail || 'Invalid credentials');
+        }
+
+        const data = await response.json();
+        const payload = JSON.parse(atob(data.access_token.split('.')[1]));
+
+        state.token = data.access_token;
+        // Map backend 'Customer' to frontend 'Patient' or keep as Customer
+        state.role = payload.role;
+        state.username = payload.display_name || payload.sub;
+
+        localStorage.setItem('token', state.token);
+        localStorage.setItem('role', state.role);
+        localStorage.setItem('username', state.username);
+
+        renderDashboard();
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    localStorage.removeItem('username');
+    state.token = null;
+    state.role = null;
+    state.username = null;
+    location.reload();
+}
+
+// --- UI Functions ---
+function showAlert(message, type) {
+    const alertBox = document.getElementById('alert-box');
+    if (alertBox) {
+        alertBox.textContent = message;
+        alertBox.className = `alert alert-${type}`;
+        alertBox.style.display = 'block';
+    } else {
+        alert(message);
+    }
+}
+
+
+function renderDashboard() {
+    // Customize sidebar based on role
+    let navLinks = `
+        <a href="#" id="nav-home" class="nav-link" onclick="loadView('home')">Home</a>
+    `;
+
+    if (state.role === 'Senior Admin') {
+        navLinks += `
+            <a href="#" id="nav-doctors" class="nav-link" onclick="loadView('doctors')">Manage Doctors</a>
+            <a href="#" id="nav-staff" class="nav-link" onclick="loadView('staff')">Manage Staff</a>
+            <a href="#" id="nav-book" class="nav-link" onclick="loadView('book')">Book Appointment</a>
+            <a href="#" id="nav-all-schedule" class="nav-link" onclick="loadView('all-schedule')">Master Schedule</a>
+            <a href="#" id="nav-check-availability" class="nav-link" onclick="loadView('check-availability')">Check Availability</a>
+        `;
+    } else if (state.role === 'Receptionist') {
+        navLinks += `
+            <a href="#" id="nav-book" class="nav-link" onclick="loadView('book')">Book Appointment</a>
+            <a href="#" id="nav-all-schedule" class="nav-link" onclick="loadView('all-schedule')">Master Schedule</a>
+            <a href="#" id="nav-check-availability" class="nav-link" onclick="loadView('check-availability')">Check Availability</a>
+        `;
+    } else if (state.role === 'Doctor') {
+        navLinks += `
+            <a href="#" id="nav-my-schedule" class="nav-link" onclick="loadView('my-schedule')">My Appointments</a>
+            <a href="#" id="nav-doctor-availability" class="nav-link" onclick="loadView('doctor-availability')">Manage Availability</a>
+        `;
+    } else { // Customer
+        navLinks += `
+            <a href="#" id="nav-book" class="nav-link" onclick="loadView('book')">Book Appointment</a>
+            <a href="#" id="nav-my-schedule" class="nav-link" onclick="loadView('my-schedule')">My Appointments</a>
+        `;
+    }
+
+    app.innerHTML = `
+        <div class="dashboard">
+            <div class="mobile-header">
+                <h3>Polyclinic</h3>
+                <button class="btn-menu" onclick="toggleSidebar()">☰ Menu</button>
+            </div>
+            <aside class="sidebar" id="sidebar">
+                <div style="margin-bottom:1rem; border-bottom:1px solid #eee; padding-bottom:1rem;">
+                    <h3>${state.role} Panel</h3>
+                    <p style="font-size:0.9rem; color:#666">Logged in as: <strong>${state.username || 'User'}</strong></p>
+                </div>
+                <nav>
+                    ${navLinks}
+                    <a href="#" class="nav-link" onclick="logout()" style="color: var(--danger-color)">Logout</a>
+                </nav>
+            </aside>
+            <main class="content" id="main-content">
+                <h2>Welcome, ${state.username || state.role}</h2>
+                <p>Select an option from the menu.</p>
+            </main>
+            <div class="overlay" onclick="toggleSidebar()"></div> 
+        </div>
+    `;
+
+    // Load home by default
+    loadView('home');
+}
+
+function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('active');
+    document.querySelector('.overlay').classList.toggle('active');
+}
+
+// --- Init ---
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        console.log("App Init: State", state);
+        // If token exists, show dashboard, else show landing
+        if (state.token) {
+            renderDashboard();
+        } else {
+            if (typeof renderLanding === 'function') {
+                renderLanding();
+            } else {
+                console.error("renderLanding is not defined!");
+                document.getElementById('app').innerHTML = `
+                    <div style="padding:20px; text-align:center;">
+                        <h1>Error Loading Application</h1>
+                        <p>Please refresh the page.</p>
+                    </div>
+                `;
+            }
+        }
+    } catch (e) {
+        console.error("Init Error:", e);
+        showToast("App Error: " + e.message, 'error');
+    }
+});
+
+// --- Event Handlers ---
+function handleLogin(e) {
+    e.preventDefault();
+    const u = document.getElementById('username').value;
+    const p = document.getElementById('password').value;
+    login(u, p);
+}
+
+// Signup handler if needed (for later)
+function handleSignup(e) {
+    e.preventDefault();
+    const u = document.getElementById('s-username').value;
+    const p = document.getElementById('s-password').value;
+    signup(u, p);
+}
+
+// --- API Helper ---
+async function authFetch(url, options = {}) {
+    const headers = {
+        'Authorization': `Bearer ${state.token}`,
+        ...options.headers
+    };
+
+    // Auto-detect Content-Type for JSON
+    if (!(options.body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(`${API_URL}${url}`, {
+        ...options,
+        headers
+    });
+
+    if (response.status === 401) {
+        logout();
+        return null;
+    }
+    return response;
+}
+
+// --- View Logic ---
+function updateSidebarActive(viewName) {
+    // Remove active class from all
+    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+
+    // Add to current
+    const el = document.getElementById('nav-' + viewName);
+    if (el) el.classList.add('active');
+}
+
+async function loadView(viewName) {
+    updateSidebarActive(viewName);
+    const content = document.getElementById('main-content');
+
+    // Clear Content
+    content.innerHTML = '<p>Loading...</p>';
+
+    if (viewName === 'home') {
+        const res = await authFetch('/stats/dashboard');
+        let stats = {};
+        if (res.ok) stats = await res.json();
+
+        content.innerHTML = `<h2>Dashboard</h2>`;
+
+        let widgets = `<div class="dashboard-grid">`;
+
+        if (state.role === 'Senior Admin') {
+            widgets += `
+                <div class="stat-card">
+                    <h3>Total Doctors</h3>
+                    <p class="stat-num">${stats.total_doctors || 0}</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Receptionists</h3>
+                    <p class="stat-num">${stats.total_staff || 0}</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Patients</h3>
+                    <p class="stat-num">${stats.total_patients || 0}</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Appts (All Time)</h3>
+                    <p class="stat-num">${stats.total_visits || 0}</p>
+                </div>
+            `;
+        } else if (state.role === 'Doctor') {
+            widgets += `
+                <div class="stat-card">
+                    <h3>Appointments Today</h3>
+                    <p class="stat-num">${stats.today_appointments || 0}</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Upcoming Appointments</h3>
+                    <p class="stat-num">${stats.upcoming_appointments || 0}</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Next Appointment</h3>
+                    <p class="stat-text">${stats.next_appointment || 'None'}</p>
+                </div>
+            `;
+        } else if (state.role === 'Receptionist') {
+            widgets += `
+                <div class="stat-card">
+                    <h3>Today's Visits</h3>
+                    <p class="stat-num">${stats.today_total_visits || 0}</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Upcoming Visits (Total)</h3>
+                    <p class="stat-num">${stats.upcoming_visits || 0}</p>
+                </div>
+            `;
+        } else if (state.role === 'Customer') { // Patient
+            widgets += `
+                <div class="stat-card">
+                    <h3>Next Appointment</h3>
+                    <p class="stat-text">${stats.next_visit || 'No upcoming visits'}</p>
+                    ${stats.next_doctor ? `<p>with ${stats.next_doctor}</p>` : ''}
+                </div>
+            `;
+        }
+
+        widgets += `</div>
+            <div style="margin-top:20px;">
+                <h3>Welcome, ${state.username || state.role}</h3>
+                <p>Select an option from the sidebar to manage the clinic.</p>
+            </div>
+        `;
+
+        content.innerHTML = widgets;
+    }
+    // --- Landing & Auth ---
+    else if (viewName === 'doctors') {
+        if (state.role !== 'Senior Admin') return content.innerHTML = '<p>Access Denied</p>';
+
+        // Fetch doctors
+        const res = await authFetch('/admin/doctors');
+        const doctors = await res.json();
+
+        let html = `
+            <h2>Manage Doctors</h2>
+            <div class="card">
+                <h3>Add New Doctor</h3>
+                <form id="add-doctor-form">
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" id="doc-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="doc-user" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="doc-pass" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Specialization</label>
+                        <input type="text" id="doc-spec" required>
+                    </div>
+                    <button type="submit" class="btn">Create Doctor</button>
+                    <div id="doc-msg" style="margin-top:10px"></div>
+                </form>
+            </div>
+
+            <h3>Existing Doctors</h3>
+            <table>
+                <thead><tr><th>Name</th><th>Specialization</th><th>Action</th></tr></thead>
+                <tbody>
+                    ${doctors.map(d => `<tr>
+                        <td>${d.name}</td>
+                        <td>${d.specialization}</td>
+                        <td><button class="btn" style="background:var(--danger-color);padding:5px 10px;font-size:0.8rem" onclick="deleteDoctor(${d.id})">Remove</button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>
+        `;
+        content.innerHTML = html;
+
+        document.getElementById('add-doctor-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const payload = {
+                username: document.getElementById('doc-user').value,
+                password: document.getElementById('doc-pass').value,
+                name: document.getElementById('doc-name').value,
+                specialization: document.getElementById('doc-spec').value
+            };
+
+            const postRes = await authFetch('/admin/doctors', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            if (postRes.ok) {
+                document.getElementById('doc-msg').innerText = "Doctor Created!";
+                document.getElementById('doc-msg').style.color = "green";
+                setTimeout(() => loadView('doctors'), 1000);
+            } else {
+                const err = await postRes.json();
+                document.getElementById('doc-msg').innerText = "Error: " + err.detail;
+                document.getElementById('doc-msg').style.color = "red";
+            }
+        });
+    }
+    else if (viewName === 'book') {
+        // Fetch doctors for dropdown
+        const res = await authFetch('/admin/doctors');
+        const doctors = await res.json();
+
+        let html = `
+            <h2>Book Appointment</h2>
+            <div class="card">
+                <form id="book-form">
+                    <div class="form-group">
+                        <label>Doctor</label>
+                        <select id="visit-doc" onchange="updateAdminTimeSlots()" required>
+                            <option value="">Select Doctor</option>
+                            ${doctors.map(d => `<option value="${d.id}">${d.name} (${d.specialization})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="visit-date" min="${new Date().toISOString().split('T')[0]}" onchange="updateAdminTimeSlots()" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Time Slot</label>
+                        <select id="visit-time" required disabled>
+                            <option value="">Select Doctor & Date First</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                         <label>Gender</label>
+                         <select id="visit-gender">
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                         </select>
+                    </div>
+                    <div class="form-group">
+                         <label>Type</label>
+                         <select id="visit-type">
+                            <option value="Consultation">Consultation</option>
+                            <option value="Follow_up">Follow Up</option>
+                            <option value="Emergency">Emergency</option>
+                         </select>
+                    </div>
+                    <button type="submit" class="btn">Check & Book</button>
+                    <div id="book-msg" style="margin-top:10px"></div>
+                </form>
+            </div>
+        `;
+        content.innerHTML = html;
+
+        document.getElementById('book-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const tVal = document.getElementById('visit-time').value;
+            const timeSlot = tVal.split(':').length === 2 ? tVal + ":00" : tVal;
+
+            const payload = {
+                doctor_id: document.getElementById('visit-doc').value,
+                visit_date: document.getElementById('visit-date').value,
+                time_slot: timeSlot,
+                gender: document.getElementById('visit-gender').value,
+                visit_type: document.getElementById('visit-type').value
+            };
+
+            const postRes = await authFetch('/visits', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            const result = await postRes.json();
+            const msgBox = document.getElementById('book-msg');
+
+            if (postRes.ok) {
+                msgBox.innerText = "Success: " + result.message;
+                msgBox.style.color = "green";
+                // setTimeout(() => loadView('home'), 1500); 
+            } else {
+                msgBox.innerText = result.detail || "Error";
+                msgBox.style.color = "red";
+            }
+        });
+    }
+    else if (viewName === 'my-schedule') {
+        const endpoint = state.role === 'Doctor' ? '/doctor/me/schedule' : '/my/appointments';
+
+        const res = await authFetch(endpoint);
+        if (!res.ok) return content.innerHTML = '<p>Error loading schedule. (Feature only for Doctors/Patients)</p>';
+        const visits = await res.json();
+
+        let headers = '';
+        let rows = '';
+
+        if (state.role === 'Doctor') {
+            headers = '<tr><th>Date</th><th>Time</th><th>Patient</th><th>Type</th></tr>';
+            rows = visits.map(v => `<tr><td>${v.visit_date}</td><td>${v.time_slot}</td><td>${v.patient_name || 'N/A'}</td><td>${v.visit_type}</td></tr>`).join('');
+
+            // Clean View: Only Appointments
+            content.innerHTML = `
+                <h2>My Appointments</h2>
+                <h3>Upcoming Appointments</h3>
+                <table><thead>${headers}</thead><tbody>${rows}</tbody></table>
+            `;
+            return; // Exit here for doctor
+
+            document.getElementById('avail-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                // Inputs are now HH:MM from dropdown, but backend handles HH:MM:SS strict.
+                // Our safe append logic is still good to keep.
+                const sVal = document.getElementById('av-start').value;
+                const eVal = document.getElementById('av-end').value;
+
+                const sTime = sVal.split(':').length === 2 ? sVal + ":00" : sVal;
+                const eTime = eVal.split(':').length === 2 ? eVal + ":00" : eVal;
+
+                const payload = [{
+                    day_of_week: parseInt(document.getElementById('av-day').value),
+                    start_time: sTime,
+                    end_time: eTime,
+                    max_patients_per_slot: 10
+                }];
+
+                const pRes = await authFetch('/doctor/me/availability', { method: 'POST', body: JSON.stringify(payload) });
+                if (pRes.ok) alert("Availability Added!");
+                else {
+                    const err = await pRes.json();
+                    alert("Error: " + (err.detail || "Unknown error"));
+                }
+            });
+            return; // Exit here for doctor
+
+        } else {
+            headers = '<tr><th>Date</th><th>Time</th><th>Doctor</th><th>Type</th><th>Action</th></tr>';
+            rows = visits.map(v => `<tr>
+                <td>${v.visit_date}</td>
+                <td>${v.time_slot}</td>
+                <td>${v.doctor_name || 'Dr. ' + v.doctor_id}</td>
+                <td><span class="badge badge-confirmed">${v.visit_type}</span></td>
+                <td><button class="btn" style="background:var(--danger-color);padding:5px 10px;font-size:0.8rem" onclick="cancelMyVisit(${v.visit_id})">Cancel</button></td>
+            </tr>`).join('');
+        }
+
+        let html = `
+            <h2>My Appointments</h2>
+            <table>
+                 <thead>${headers}</thead>
+                 <tbody>${rows}</tbody>
+            </table>
+        `;
+        content.innerHTML = html;
+    }
+    else if (viewName === 'doctor-availability') {
+        // ... (existing code) ...
+        // Fetch existing availability
+        let availList = [];
+        const avRes = await authFetch('/doctor/me/availability');
+        // ... (rest of function omitted for brevity, but I need to make sure I don't cut it off)
+        // Actually, I should just replace the block I am touching.
+
+        // Helper for cancellation
+        window.cancelMyVisit = async function (visitId) {
+            if (!(await showConfirm("Are you sure you want to cancel this appointment?"))) return;
+
+            const res = await authFetch('/visits/' + visitId, {
+                method: 'DELETE'
+            });
+
+            if (res.ok) {
+                showToast("Appointment Cancelled", "success");
+                loadView('my-schedule');
+            } else {
+                const err = await res.json();
+                showToast("Error: " + (err.detail || "Failed to cancel"), "error");
+            }
+        };
+        if (avRes.ok) availList = await avRes.json();
+
+        const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+        const isDefaultOpen = availList.length === 0;
+
+        let tableRows = '';
+
+        for (let i = 0; i < 7; i++) {
+            const dayName = days[i];
+            const daySlots = availList.filter(a => a.day_of_week === i);
+
+            if (daySlots.length > 0) {
+                // Strict Mode for this day
+                const slotStr = daySlots.map(s => `
+                    <div style="margin-bottom:5px;">
+                        ${s.start_time} - ${s.end_time} 
+                        <button class="btn" style="background:var(--danger-color);padding:2px 5px;font-size:0.7rem; margin-left:5px;" onclick="deleteSlot(${s.id})">Remove</button>
+                    </div>
+                 `).join('');
+
+                tableRows += `
+                    <tr>
+                        <td>${dayName}</td>
+                        <td>${slotStr}</td>
+                        <td>
+                            <button class="btn" style="padding:2px 5px; font-size:0.8rem;" onclick="setFormDay(${i})">Add More</button>
+                        </td>
+                    </tr>
+                 `;
+            } else {
+                // Open Mode for this day
+                tableRows += `
+                    <tr>
+                        <td>${dayName}</td>
+                        <td><span style="color:green; font-weight:bold;">Fully Available (08:00 - 22:00)</span></td>
+                        <td>
+                            <button class="btn" style="padding:2px 5px; font-size:0.8rem; background:var(--primary-color)" onclick="setFormDay(${i})">Customize</button>
+                        </td>
+                    </tr>
+                 `;
+            }
+        }
+
+        content.innerHTML = `
+            <h2>Manage Availability</h2>
+            
+            <div class="card">
+                <h3>Weekly Schedule (Mon-Sun)</h3>
+                <p style="font-size:0.9rem; color:#666; margin-bottom:10px;">
+                    ${isDefaultOpen ? "You have no custom usage set. You are available all day (8 AM - 10 PM)." : "You are in <strong>Strict Mode</strong>. You are only available during the times listed below."}
+                </p>
+                <table>
+                    <thead><tr><th>Day</th><th>Status / Slots</th><th>Action</th></tr></thead>
+                    <tbody>${tableRows}</tbody>
+                </table>
+             </div>
+            
+            <div class="card" id="add-slot-card">
+                <h3>Add Availability Slot</h3>
+                <form id="avail-form">
+                    <div class="form-group"><label>Day</label>
+                        <select id="av-day" required>
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>Start Time</label><input type="time" id="av-start" required></div>
+                    <div class="form-group"><label>End Time</label><input type="time" id="av-end" required></div>
+                    <button type="submit" class="btn">Add Slot</button>
+                    <div id="av-msg" style="margin-top:10px"></div>
+                </form>
+            </div>
+            
+            <div class="card" style="border-top: 4px solid var(--danger-color)">
+                <h3>Manage Time Off / Exceptions</h3>
+                <p>Select a date to mark as "Day Off".</p>
+                <form id="exception-form">
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="ex-date" min="${new Date().toISOString().split('T')[0]}" required>
+                    </div>
+                    <button type="submit" class="btn" style="background:var(--danger-color)">Mark as Day Off</button>
+                    <div id="ex-msg" style="margin-top:10px"></div>
+                </form>
+            </div>
+        `;
+
+        document.getElementById('exception-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = document.getElementById('ex-date').value;
+
+            const payload = {
+                exception_date: date,
+                status: 'Cancelled'
+            };
+
+            const res = await authFetch('/doctor/me/exceptions', { method: 'POST', body: JSON.stringify(payload) });
+            if (res.ok) {
+                document.getElementById('ex-msg').innerText = "Day marked as off!";
+                document.getElementById('ex-msg').style.color = "green";
+            } else {
+                const err = await res.json();
+                document.getElementById('ex-msg').innerText = "Error: " + err.detail;
+                document.getElementById('ex-msg').style.color = "red";
+            }
+        });
+
+        document.getElementById('avail-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const sVal = document.getElementById('av-start').value;
+            const eVal = document.getElementById('av-end').value;
+
+            const sTime = sVal.split(':').length === 2 ? sVal + ":00" : sVal;
+            const eTime = eVal.split(':').length === 2 ? eVal + ":00" : eVal;
+
+            const payload = [{
+                day_of_week: parseInt(document.getElementById('av-day').value),
+                start_time: sTime,
+                end_time: eTime,
+                max_patients_per_slot: 10
+            }];
+
+            const pRes = await authFetch('/doctor/me/availability', { method: 'POST', body: JSON.stringify(payload) });
+            if (pRes.ok) {
+                document.getElementById('av-msg').innerText = "Availability Added!";
+                document.getElementById('av-msg').style.color = "green";
+                setTimeout(() => loadView('doctor-availability'), 1000);
+            } else {
+                const err = await pRes.json();
+                document.getElementById('av-msg').innerText = "Error: " + (err.detail || "Unknown error");
+                document.getElementById('av-msg').style.color = "red";
+            }
+        });
+    }
+    else if (viewName === 'all-schedule') {
+        content.innerHTML = `
+            <h2>Master Schedule</h2>
+            <div class="card">
+                <div class="form-group">
+                    <label>Select Date</label>
+                    <input type="date" id="sched-date" value="${new Date().toISOString().split('T')[0]}" min="${new Date().toISOString().split('T')[0]}" onchange="loadMasterSchedule(this.value)">
+                </div>
+            </div>
+            <div id="schedule-results"></div>
+        `;
+        // Load default
+        loadMasterSchedule(document.getElementById('sched-date').value);
+    }
+    else if (viewName === 'staff') {
+        if (state.role !== 'Senior Admin') return content.innerHTML = '<p>Access Denied</p>';
+
+        // Fetch existing staff
+        const res = await authFetch('/admin/staff');
+        let staffList = [];
+        if (res.ok) staffList = await res.json();
+
+        let html = `
+            <h2>Manage Staff</h2>
+            <div class="card">
+                <h3>Create Receptionist</h3>
+                <form id="add-staff-form">
+                    <div class="form-group"><label>Username</label><input type="text" id="st-user" required></div>
+                    <div class="form-group"><label>Password</label><input type="password" id="st-pass" required></div>
+                    <button type="submit" class="btn">Create</button>
+                    <div id="st-msg" style="margin-top:10px"></div>
+                </form>
+            </div>
+
+            <h3>Existing Receptionists</h3>
+            <table>
+                <thead><tr><th>ID</th><th>Username</th><th>Action</th></tr></thead>
+                <tbody>
+                    ${staffList.length > 0 ? staffList.map(s => `<tr>
+                        <td>${s.id}</td>
+                        <td>${s.username}</td>
+                        <td><button class="btn" style="background:var(--danger-color);padding:5px 10px;font-size:0.8rem" onclick="deleteStaff(${s.id})">Remove</button></td>
+                    </tr>`).join('') : '<tr><td colspan="3">No receptionists found</td></tr>'}
+                </tbody>
+            </table>
+         `;
+        content.innerHTML = html;
+
+        document.getElementById('add-staff-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const payload = {
+                username: document.getElementById('st-user').value,
+                password: document.getElementById('st-pass').value,
+                role: 'Receptionist'
+            };
+
+            const postRes = await authFetch('/admin/users', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            if (postRes.ok) {
+                document.getElementById('st-msg').innerText = "Receptionist Created!";
+                document.getElementById('st-msg').style.color = "green";
+                setTimeout(() => loadView('staff'), 1000); // Reload to show in list
+            } else {
+                const err = await postRes.json();
+                document.getElementById('st-msg').innerText = "Error: " + err.detail;
+                document.getElementById('st-msg').style.color = "red";
+            }
+        });
+    }
+    else if (viewName === 'check-availability') {
+        // 1. Fetch Doctor List
+        const res = await authFetch('/admin/doctors');
+        if (!res.ok) return content.innerHTML = '<p>Error loading doctors</p>';
+        const doctors = await res.json();
+
+        content.innerHTML = `
+            <h2>Check Doctor Availability</h2>
+            <div class="card">
+                <div class="form-group">
+                    <label>Select Doctor</label>
+                    <select id="av-view-doc" onchange="loadDoctorAvailabilityView(this.value)">
+                        <option value="">-- Select --</option>
+                        ${doctors.map(d => `<option value="${d.id}">${d.name} (${d.specialization})</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div id="availability-results"></div>
+        `;
+    }
+}
+
+async function loadDoctorAvailabilityView(doctorId) {
+    const div = document.getElementById('availability-results');
+    if (!doctorId) { div.innerHTML = ''; return; }
+
+    div.innerHTML = '<p>Loading...</p>';
+
+    // Fetch data
+    const res = await authFetch(`/admin/doctors/${doctorId}/availability`);
+    if (!res.ok) {
+        div.innerHTML = '<p style="color:red">Error loading availability</p>';
+        return;
+    }
+
+    const data = await res.json();
+    const weekly = data.weekly;
+    const exceptions = data.exceptions;
+
+    const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+    // Weekly Table
+    let weeklyRows = '';
+
+    // Sort logic: Mon(0) to Sun(6)
+    for (let i = 0; i < 7; i++) {
+        const slots = weekly.filter(s => s.day_of_week === i);
+        if (slots.length > 0) {
+            const slotStr = slots.map(s => `${s.start_time.substring(0, 5)} - ${s.end_time.substring(0, 5)}`).join(', ');
+            weeklyRows += `<tr><td>${days[i]}</td><td>${slotStr}</td></tr>`;
+        } else {
+            // Default Open Policy
+            weeklyRows += `<tr><td>${days[i]}</td><td><span style="color:#666">08:00 - 22:00 (Standard)</span></td></tr>`;
+        }
+    }
+
+    // Remove the "weekly.length === 0" block as it's now covered by the loop defaults
+
+
+    // Exceptions Table
+    let exRows = '';
+    if (exceptions.length > 0) {
+        exRows = exceptions.map(e => {
+            let detail = e.status;
+            if (e.status !== 'Cancelled' && e.start_time) {
+                detail += ` (${e.start_time.substring(0, 5)} - ${e.end_time.substring(0, 5)})`;
+            }
+            return `<tr><td>${e.exception_date}</td><td>${detail}</td></tr>`;
+        }).join('');
+    } else {
+        exRows = `<tr><td colspan="2">No upcoming exceptions/leaves.</td></tr>`;
+    }
+
+    div.innerHTML = `
+        <div class="card">
+            <h3>Weekly Schedule</h3>
+            <table>
+                <thead><tr><th>Day</th><th>Working Hours</th></tr></thead>
+                <tbody>${weeklyRows}</tbody>
+            </table>
+        </div>
+        
+        <div class="card" style="margin-top:20px;">
+            <h3>Exceptions / Leaves</h3>
+            <table>
+                <thead><tr><th>Date</th><th>Status</th></tr></thead>
+                <tbody>${exRows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function deleteStaff(id) {
+    if (!(await showConfirm("Are you sure you want to remove this staff member?"))) return;
+    const res = await authFetch(`/admin/staff/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        showToast("Staff Removed", "success");
+        loadView('staff');
+    } else {
+        showToast("Error removing staff", "error");
+    }
+}
+
+async function deleteDoctor(id) {
+    if (!(await showConfirm("Are you sure you want to remove this Doctor? This will cancel all their appointments."))) return;
+    const res = await authFetch(`/admin/doctors/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        showToast("Doctor Removed", "success");
+        loadView('doctors');
+    } else {
+        showToast("Error removing doctor", "error");
+    }
+}
+
+async function deleteSlot(id) {
+    if (!(await showConfirm("Remove this availability slot?"))) return;
+    const res = await authFetch(`/doctor/me/availability/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        showToast("Slot Removed", "success");
+        loadView('doctor-availability');
+    } else {
+        showToast("Error removing slot", "error");
+    }
+}
+
+function setFormDay(dayIndex) {
+    const select = document.getElementById('av-day');
+    if (select) {
+        select.value = dayIndex;
+        document.getElementById('add-slot-card').scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+async function loadMasterSchedule(date) {
+    const div = document.getElementById('schedule-results');
+    div.innerHTML = '<p>Loading...</p>';
+
+    const res = await authFetch(`/schedule?date=${date}`);
+
+    if (!res.ok) {
+        div.innerHTML = '<p style="color:red">Error loading schedule</p>';
+        return;
+    }
+
+    const visits = await res.json();
+
+    if (visits.length === 0) {
+        div.innerHTML = '<p>No appointments for this date.</p>';
+        return;
+    }
+
+    let html = `
+        <table>
+            <thead><tr><th>Time</th><th>Patient</th><th>Doctor</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+                ${visits.map(v => `<tr>
+                    <td>${v.time_slot}</td>
+                    <td>${v.patient_name || 'Walk-in'}</td> 
+                    <td>${v.doctor_name || 'Dr. ' + v.doctor_id}</td>
+                    <td>${v.visit_type}</td>
+                    <td>Confirmed</td>
+                    <td><button class="btn" style="background:var(--danger-color);padding:2px 5px;font-size:0.8rem" onclick="cancelVisit(${v.visit_id})">Cancel</button></td>
+                </tr>`).join('')}
+            </tbody>
+        </table>
+    `;
+    div.innerHTML = html;
+}
+
+async function cancelVisit(id) {
+    if (!(await showConfirm("Are you sure you want to cancel this appointment?"))) return;
+    const res = await authFetch(`/visits/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+        showToast("Appointment Cancelled", "success");
+        // Reload schedule if we are on that view
+        const val = document.getElementById('sched-date') ? document.getElementById('sched-date').value : null;
+        if (val) loadMasterSchedule(val);
+    } else {
+        showToast("Error cancelling", "error");
+    }
+}
+
+// --- Landing & Auth ---
+// --- Landing & Auth ---
+// --- Landing & Auth ---
+function renderLanding() {
+    const content = document.getElementById('app');
+
+    content.innerHTML = `
+        <div class="auth-container" style="max-width:800px; display:flex; flex-direction:row; gap:2rem; align-items:center;">
+             <div style="flex:1; text-align:left;">
+                 <h1>Polyclinic Center</h1>
+                 <p style="font-size:1.1rem; color:#64748b; margin-bottom:1.5rem;">
+                     Professional healthcare at your fingertips. Book an appointment instantly without creating an account.
+                 </p>
+                 <button class="btn" onclick="loadGuestBooking()" style="font-size:1.1rem; padding:1rem;">Book an Appointment</button>
+                 <button class="btn btn-secondary" onclick="loadGuestCancellation()" style="margin-top:10px; width:100%">Manage Existing Booking</button>
+             </div>
+             <div style="flex:1; border-left:1px solid #eee; padding-left:2rem;">
+                 <h3>Staff Portal</h3>
+                 <p>Doctors and Admin Access</p>
+                 <button class="btn btn-secondary" onclick="renderLogin()">Staff Login</button>
+                 <div style="margin-top:10px;text-align:right;">
+                    <a href="#" onclick="forgotPassword()" style="font-size:0.9rem;color:var(--primary-color)">Forgot Password?</a>
+                 </div>
+             </div>
+        </div>
+    `;
+}
+
+// --- Guest Cancellation Logic ---
+function loadGuestCancellation() {
+    const content = document.getElementById('app');
+    content.innerHTML = `
+        <div class="card" style="max-width:500px; margin: 40px auto;">
+            <h2>Cancel My Booking</h2>
+            <div id="cancel-step-1">
+                <div class="form-group">
+                    <label>Booking ID</label>
+                    <input type="number" id="c-bid" placeholder="e.g. 12" required>
+                </div>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="c-email" placeholder="Email Address" required>
+                </div>
+                <button class="btn" style="margin-top:10px" onclick="sendCancelOTP()">Send Verification Code</button>
+                <button class="btn btn-secondary" style="margin-top:10px" onclick="renderLanding()">Back</button>
+            </div>
+            
+            <div id="cancel-step-2" style="display:none; margin-top:20px; border-top:1px solid #eee; padding-top:20px;">
+                <p style="color:green; font-weight:bold;">Code sent! Check your email.</p>
+                <div class="form-group">
+                    <label>Enter Verification Code</label>
+                    <input type="text" id="c-otp" placeholder="6-digit code">
+                </div>
+                <button class="btn" style="background:var(--danger-color)" onclick="confirmCancel()">Confirm Cancellation</button>
+                <button id="btn-resend-cancel" class="btn btn-secondary" onclick="resendCancelOTP()" disabled style="margin-top:10px; font-size:0.9rem">Resend OTP (15s)</button>
+                <button class="btn btn-secondary" style="margin-top:10px" onclick="renderLanding()">Cancel</button>
+            </div>
+        </div>
+    `;
+}
+
+function renderLogin() {
+    const content = document.getElementById('app');
+    content.innerHTML = `
+        <div class="auth-container">
+            <h1>Staff Login</h1>
+            <p>Access the management dashboard</p>
+            <form onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit" class="btn">Login</button>
+            </form>
+            <button class="btn btn-secondary" style="margin-top:1rem" onclick="renderLanding()">Back</button>
+        </div>
+    `;
+}
+
+async function forgotPassword() {
+    showPromptModal("Enter your username for password reset:", async (user) => {
+        if (!user) return;
+        const res = await fetch('/auth/forgot-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user })
+        });
+        const data = await res.json();
+        showToast(data.message, res.ok ? 'success' : 'error');
+    });
+}
+
+// --- Guest Booking Flow ---
+let guestBookingData = {};
+
+async function loadGuestBooking() {
+    // Validating function entry
+    console.log("Starting loadGuestBooking...");
+    const content = document.getElementById('app');
+
+    // Safely set loading state
+    content.innerHTML = `<div style="text-align:center; padding:50px;"><h2>Loading...</h2></div>`;
+
+    let docOptions = `<option value="">Select Doctor</option>`;
+
+    try {
+        // Use AbortController for reliable timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconds
+
+        console.log("Fetching doctors...");
+        const res = await fetch('/doctors/public', { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+            const doctors = await res.json();
+            console.log("Doctors loaded:", doctors.length);
+            if (doctors.length === 0) {
+                docOptions = `<option value="">No doctors available</option>`;
+            } else {
+                docOptions += doctors.map(d => `<option value="${d.id}">${d.name} (${d.specialization})</option>`).join('');
+            }
+        } else {
+            console.error("Server returned:", res.status);
+            docOptions = '<option value="">Error loading doctors (Server Error)</option>';
+        }
+    } catch (e) {
+        console.error("Fetch/Render logic failed:", e);
+        if (e.name === 'AbortError') {
+            docOptions = '<option value="">Network Timeout - Server is slow</option>';
+        } else {
+            docOptions = `<option value="">System Error: ${e.message}</option>`;
+        }
+    }
+
+    try {
+        console.log("Rendering Booking Form...");
+        const formHTML = `
+            <div class="card" style="max-width:800px; margin:0 auto;">
+                <h2>Book an Appointment</h2>
+                <div id="booking-step-1">
+                    <div class="form-group">
+                        <label>Select Doctor</label>
+                        <select id="g-doc-id" onchange="updateGuestTimeSlots()" required>
+                            ${docOptions}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="g-date" min="${new Date().toISOString().split('T')[0]}" onchange="updateGuestTimeSlots()" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Available Times</label>
+                        <select id="g-time" disabled><option>Select Doctor & Date First</option></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="g-type">
+                            <option value="Consultation">Consultation</option>
+                            <option value="Follow_up">Follow Up</option>
+                            <option value="Emergency">Emergency</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Gender</label>
+                        <select id="g-gender">
+                            <option value="Male">Male</option>
+                            <option value="Female">Female</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="goToGuestStep2()">Next: Your Details</button>
+                    <button class="btn btn-secondary" style="margin-top:10px" onclick="renderLanding()">Cancel</button>
+                </div>
+                
+                <div id="booking-step-2" style="display:none;">
+                    <div class="form-group"><label>Full Name</label><input type="text" id="g-name"></div>
+                    <div class="form-group"><label>Email</label><input type="email" id="g-email"></div>
+                    <button class="btn" onclick="sendGuestOTP()">Verify Email & Book</button>
+                    <div id="otp-area" style="margin-top:20px; display:none; border-top:1px solid #eee; padding-top:20px;">
+                        <p style="color:var(--success-color); font-weight:bold;">OTP Sent! Check your email.</p>
+                        <div class="form-group"><label>Enter OTP Code</label><input type="text" id="g-otp"></div>
+                        <button class="btn" onclick="confirmGuestBooking()">Confirm Booking</button>
+                        <button id="btn-resend-guest" class="btn btn-secondary" onclick="resendGuestOTP()" disabled style="margin-top:10px; font-size:0.9rem">Resend OTP (15s)</button>
+                    </div>
+                    <button class="btn btn-secondary" style="margin-top:10px" onclick="loadGuestBooking()">Back</button>
+                </div>
+            </div>
+        `;
+        content.innerHTML = formHTML;
+        console.log("Form Rendered Successfully.");
+
+    } catch (e) {
+        console.error("Critical Render Error:", e);
+        content.innerHTML = `<div class="card"><h1>Critical Error Loading Form</h1><p>${e.message}</p><button class="btn" onclick="location.reload()">Reload App</button></div>`;
+    }
+}
+
+async function updateGuestTimeSlots() {
+    const docId = document.getElementById('g-doc-id').value;
+    const date = document.getElementById('g-date').value;
+    const timeSelect = document.getElementById('g-time');
+
+    if (!docId || !date) {
+        timeSelect.innerHTML = '<option>Select Doctor & Date First</option>';
+        timeSelect.disabled = true;
+        return;
+    }
+
+    timeSelect.innerHTML = '<option>Loading...</option>';
+
+    try {
+        const res = await fetch(`/doctors/${docId}/public-slots?date=${date}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.slots.length === 0) {
+                timeSelect.innerHTML = '<option value="">No slots available</option>';
+                timeSelect.disabled = true;
+            } else {
+                timeSelect.innerHTML = data.slots.map(t => `<option value="${t}:00">${t}</option>`).join('');
+                timeSelect.disabled = false;
+            }
+        } else {
+            timeSelect.innerHTML = '<option>Error loading slots</option>';
+        }
+    } catch (e) {
+        console.error(e);
+        timeSelect.innerHTML = '<option>System Error</option>';
+    }
+}
+
+async function updateAdminTimeSlots() {
+    const docId = document.getElementById('visit-doc').value;
+    const date = document.getElementById('visit-date').value;
+    const timeSelect = document.getElementById('visit-time');
+
+    if (!docId || !date) {
+        timeSelect.innerHTML = '<option>Select Doctor & Date First</option>';
+        timeSelect.disabled = true;
+        return;
+    }
+
+    timeSelect.innerHTML = '<option>Loading...</option>';
+
+    try {
+        const res = await fetch(`/doctors/${docId}/public-slots?date=${date}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.slots.length === 0) {
+                timeSelect.innerHTML = '<option value="">No slots available</option>';
+                timeSelect.disabled = true;
+            } else {
+                timeSelect.innerHTML = data.slots.map(t => `<option value="${t}:00">${t}</option>`).join('');
+                timeSelect.disabled = false;
+            }
+        } else {
+            timeSelect.innerHTML = '<option>Error loading slots</option>';
+        }
+    } catch (e) {
+        console.error(e);
+        timeSelect.innerHTML = '<option>System Error</option>';
+    }
+}
+
+function goToGuestStep2() {
+    guestBookingData.doctor_id = document.getElementById('g-doc-id').value;
+    guestBookingData.visit_date = document.getElementById('g-date').value;
+    guestBookingData.time_slot = document.getElementById('g-time').value;
+    guestBookingData.visit_type = document.getElementById('g-type').value;
+    guestBookingData.gender = document.getElementById('g-gender').value;
+
+    if (!guestBookingData.doctor_id || !guestBookingData.visit_date) {
+        showToast("Please fill required fields", 'warning'); return;
+    }
+    document.getElementById('booking-step-1').style.display = 'none';
+    document.getElementById('booking-step-2').style.display = 'block';
+}
+
+async function sendGuestOTP() {
+    const email = document.getElementById('g-email').value;
+    if (!email) return showToast("Enter email", "warning");
+
+    guestBookingData.guest_name = document.getElementById('g-name').value;
+    guestBookingData.guest_email = email;
+    guestBookingData.guest_phone = null;
+
+    const res = await fetch('/auth/otp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+    });
+
+    if (res.ok) {
+        document.getElementById('otp-area').style.display = 'block';
+        startResendTimer('btn-resend-guest');
+    } else {
+        showToast("Failed to send OTP", "error");
+    }
+}
+
+function resendGuestOTP() {
+    sendGuestOTP();
+}
+
+async function confirmGuestBooking() {
+    try {
+        const otp = document.getElementById('g-otp').value;
+        if (!otp) return showToast("Please enter the OTP code", "warning");
+
+        guestBookingData.otp_code = otp;
+        console.log("Confirming Booking:", guestBookingData);
+
+        const res = await fetch('/visits/public', { // Use correct endpoint if changed
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(guestBookingData)
+        });
+
+        // Endpoint Check: Main.py says /visits/public (Line 104 in step 1236 check).
+        // Wait, app.js in step 1296 used /guest-visits?
+        // Step 1296, Line 1315: fetch('/guest-visits' ...
+        // Main.py Step 1236, Line ~65: book_guest_visit at /visits/public.
+        // Wait!
+        // Did I just catch a bug?
+        // Step 841 (Previous session?): User objective was fixing 500.
+        // Step 1236 shows `book_guest_visit` at `@app.post("/visits/public")`.
+        // If `app.js` is calling `/guest-visits`, it might be 404!
+        // Let me check main.py again for `/guest-visits`.
+        // If it's missing, that's why it failed?
+        // But the user said "loading doctors" stuck, not booking failed.
+        // Still, I should correct the endpoint to `/visits/public` if that's what main.py has.
+        // Let's assume standard behavior. Inspect main.py search result from Step 1236.
+        // It shows `@app.post("/visits/public")`.
+        // It DOES NOT show `@app.post("/guest-visits")`.
+        // So I will fix the endpoint here too.
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast("Booking Confirmed! ID: " + data.visit_id, "success");
+            renderLanding();
+        } else {
+            console.error("Booking Error:", data);
+            showToast("Error: " + (data.detail || JSON.stringify(data)), 'error');
+        }
+    } catch (e) {
+        console.error("JS Error:", e);
+        showToast("System Error: " + e.message, 'error');
+    }
+}
+
+// --- Guest Cancellation Logic ---
+let cancelData = {};
+
+async function sendCancelOTP() {
+    const email = document.getElementById('c-email').value;
+    const bid = document.getElementById('c-bid').value;
+
+    if (!email || !bid) return showToast("Please enter Booking ID and Email", "warning");
+
+    // Store for later
+    cancelData = { email, visit_id: bid };
+
+    // Use validation endpoint
+    const res = await fetch('/guest-visits/send-cancel-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visit_id: parseInt(bid), email: email })
+    });
+
+    if (res.ok) {
+        document.getElementById('cancel-step-1').style.display = 'none';
+        document.getElementById('cancel-step-2').style.display = 'block';
+        startResendTimer('btn-resend-cancel');
+        showToast("OTP Sent! Check email.", "success");
+    } else {
+        const err = await res.json();
+        showToast("Error: " + (err.detail || "Failed to find booking"), "error");
+    }
+}
+
+function resendCancelOTP() {
+    // Just call sendCancelOTP again but careful about UI state toggling (it's already decent)
+    // Actually sendCancelOTP toggles 'cancel-step-1' to none, which is fine since it's already none.
+    // But we need to make sure we don't clear the email/bid fields.
+    // Since they are hidden, they might be accessible? Yes.
+    // However, sendCancelOTP reads from DOM.
+    // The issue is sendCancelOTP toggles display. 
+    // Let's just create a direct fetch or ensure logic is safe.
+    // sendCancelOTP reads from #c-email and #c-bid.
+    // These inputs are in Step 1, which is hidden but existing.
+    // So calling sendCancelOTP() again is safe.
+    sendCancelOTP();
+}
+
+async function confirmCancel() {
+    const otp = document.getElementById('c-otp').value;
+    if (!otp) return showToast("Enter OTP", "warning");
+
+    const payload = {
+        visit_id: parseInt(cancelData.visit_id),
+        email: cancelData.email,
+        otp_code: otp
+    };
+
+    const res = await fetch('/guest-visits/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+        showToast("Success: " + data.message, "success");
+        renderLanding(); // Reset
+    } else {
+        showToast("Error: " + data.detail, "error");
+    }
+}
+
+// --- Global Helpers ---
+
+function startResendTimer(btnId) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+
+    let left = 15;
+    btn.disabled = true;
+    btn.innerText = `Resend OTP (${left}s)`;
+
+    const timer = setInterval(() => {
+        left--;
+        if (left <= 0) {
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.innerText = "Resend OTP";
+        } else {
+            btn.innerText = `Resend OTP (${left}s)`;
+        }
+    }, 1000);
+}
+
+// Toast Timeout Holder
+// Toast Timeout Holder
+let toastTimeout;
+
+// Center Modal Toast
+function showToast(message, type = 'info') {
+    let box = document.getElementById('alert-box');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'alert-box';
+        document.body.prepend(box);
+    }
+
+    if (toastTimeout) clearTimeout(toastTimeout);
+
+    // CSS for Center Modal
+    box.style.position = 'fixed';
+    box.style.top = '50%';
+    box.style.left = '50%';
+    box.style.transform = 'translate(-50%, -50%)';
+    box.style.zIndex = '9999';
+    box.style.padding = '20px 40px';
+    box.style.borderRadius = '12px';
+    box.style.boxShadow = '0 10px 25px rgba(0,0,0,0.5)';
+    box.style.fontSize = '1.2rem';
+    box.style.fontWeight = 'bold';
+    box.style.display = 'block';
+    box.style.textAlign = 'center';
+    box.style.minWidth = '300px';
+
+    if (type === 'error') {
+        box.style.background = '#fee2e2';
+        box.style.color = '#dc2626';
+        box.style.border = '2px solid #dc2626';
+    } else if (type === 'success') {
+        box.style.background = '#dcfce7';
+        box.style.color = '#16a34a';
+        box.style.border = '2px solid #16a34a';
+    } else {
+        box.style.background = '#fff';
+        box.style.color = '#333';
+        box.style.border = '2px solid #333';
+    }
+
+    box.innerText = message;
+
+    // Auto hide
+    toastTimeout = setTimeout(() => {
+        box.style.display = 'none';
+    }, 3000);
+}
+
+// Confirmation Modal (Promise-based)
+function showConfirm(message) {
+    return new Promise((resolve) => {
+        const modalId = 'confirm-modal-' + Date.now();
+        const modalHTML = `
+            <div id="${modalId}" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; justify-content:center; align-items:center; z-index:10000; backdrop-filter:blur(2px);">
+                <div style="background:white; padding:2rem; border-radius:12px; min-width:320px; box-shadow:0 10px 40px rgba(0,0,0,0.2); text-align:center; animation: fadeIn 0.2s ease-out;">
+                    <h3 style="margin-top:0; color:#333; margin-bottom:1.5rem;">${message}</h3>
+                    <div style="display:flex; justify-content:center; gap:1rem;">
+                        <button class="btn btn-secondary" id="${modalId}-no" style="min-width:100px;">Cancel</button>
+                        <button class="btn" id="${modalId}-yes" style="background:var(--danger-color); color:white; min-width:100px;">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        document.getElementById(`${modalId}-yes`).onclick = () => {
+            document.getElementById(modalId).remove();
+            resolve(true);
+        };
+
+        document.getElementById(`${modalId}-no`).onclick = () => {
+            document.getElementById(modalId).remove();
+            resolve(false);
+        };
+    });
+}
+
+// Custom Modal Prompt
+function showPromptModal(message, callback) {
+    // Create modal DOM
+    const modalId = 'prompt-modal-' + Date.now();
+    const modalHTML = `
+        <div id="${modalId}" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; justify-content:center; align-items:center; z-index:9999;">
+            <div style="background:white; padding:2rem; border-radius:10px; min-width:300px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                <h3>${message}</h3>
+                <input type="text" id="${modalId}-input" style="width:100%; padding:8px; margin:10px 0; border:1px solid #ccc; border-radius:4px;">
+                <div style="text-align:right;">
+                    <button class="btn btn-secondary" onclick="document.getElementById('${modalId}').remove()">Cancel</button>
+                    <button class="btn" onclick="const val = document.getElementById('${modalId}-input').value; document.getElementById('${modalId}').remove(); window._promptCallbacks['${modalId}'](val);">OK</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    if (!window._promptCallbacks) window._promptCallbacks = {};
+    window._promptCallbacks[modalId] = callback;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    document.getElementById(`${modalId}-input`).focus();
+}
+// --- Init Application ---
+function init() {
+    console.log("App Initializing...");
+    if (state.token) {
+        console.log("User logged in, loading dashboard");
+        updateSidebarActive('home');
+        renderDashboard();
+        loadView('home');
+    } else {
+        console.log("Guest mode, loading landing");
+        renderLanding();
+    }
+}
+
+// Start
+document.addEventListener('DOMContentLoaded', init);
