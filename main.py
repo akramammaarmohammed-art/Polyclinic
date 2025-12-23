@@ -1557,11 +1557,16 @@ def get_dashboard_stats(current_user: User = Depends(get_current_active_user), d
 # --- Static Files & SPA (Frontend) ---
 @app.get("/")
 def read_root():
-    return FileResponse('static/index.html')
+    # Use absolute path to ensure we find the file regardless of CWD
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    index_path = os.path.join(base_dir, "static", "index.html")
+    if not os.path.exists(index_path):
+        return {"error": "Critical: static/index.html not found on server"}
+    return FileResponse(index_path)
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
-    return FileResponse('static/index.html') # Just return index or empty. Better: 204 No Content or bytes.
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html"))
 
 # --- Routes: Messaging (V3) ---
 
