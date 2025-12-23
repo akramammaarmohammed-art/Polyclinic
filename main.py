@@ -1319,7 +1319,7 @@ def get_public_doctor_slots(doctor_id: int, date: str, db: Session = Depends(get
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format YYYY-MM-DD")
 
-    now = datetime.now()
+    now = datetime.utcnow() + timedelta(hours=5, minutes=30) # Adjust for India Standard Time (IST)
     today = now.date()
     current_time = now.time()
 
