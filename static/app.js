@@ -1921,42 +1921,27 @@ async function loadMessagesView() {
     } catch (e) { console.error(e); }
 
     const html = `
-        <style>
-            .chat-container { display: flex; height: calc(100vh - 140px); background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
-            .chat-sidebar { width: 300px; border-right: 1px solid #eee; display: flex; flex-direction: column; background: #f8f9fa; }
-            .chat-list { flex: 1; overflow-y: auto; }
-            .chat-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: background 0.2s; }
-            .chat-item:hover, .chat-item.active { background: #e3f2fd; }
-            .chat-window { flex: 1; display: flex; flex-direction: column; background: #fff; }
-            .chat-header { padding: 15px; border-bottom: 1px solid #eee; font-weight: bold; background: #fff; display:flex; justify-content:space-between; align-items:center; }
-            .chat-messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; background: #e5ddd5; }
-            .message-bubble { max-width: 70%; padding: 10px 15px; border-radius: 15px; font-size: 0.95rem; position: relative; word-wrap: break-word; }
-            .msg-sent { align-self: flex-end; background: #dcf8c6; color: #000; border-bottom-right-radius: 2px; }
-            .msg-received { align-self: flex-start; background: #fff; color: #000; border-bottom-left-radius: 2px; box-shadow: 0 1px 1px rgba(0,0,0,0.1); }
-            .chat-input-area { padding: 15px; background: #f0f0f0; border-top: 1px solid #ddd; display: flex; gap: 10px; }
-            .chat-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
-            .timestamp { font-size: 0.7rem; color: #999; margin-top: 5px; text-align: right; }
-            .badge-unread { background: #25d366; color: white; border-radius: 50%; padding: 2px 6px; font-size: 0.75rem; float: right; }
-        </style>
-
         <div style="height:100%; display:flex; flex-direction:column;">
-            <div style="margin-bottom:10px; display:flex; justify-content:space-between;">
-                <h2>Messages <small style="font-size:0.5em; color:red;">(Fix v999)</small></h2>
+            <div style="margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;">
+                <h2>Messages</h2>
                 <div style="display:flex; gap:10px;">
-                    <button class="btn" style="background:var(--secondary-color); font-size:0.8rem;" onclick="pollChatUpdates()">↻ Refresh</button>
-                    <button class="btn" onclick="openComposeModal()">+ New Chat</button>
+                    <button class="btn btn-secondary" style="font-size:0.8rem; padding: 0.5rem 1rem;" onclick="pollChatUpdates()">↻ Sync</button>
+                    <button class="btn" onclick="openComposeModal()">+ New</button>
                 </div>
             </div>
             
-            <div class="chat-container">
+            <div class="chat-container" id="chat-master-container">
                 <div class="chat-sidebar">
                     <div class="chat-list" id="chat-list">
                         ${renderChatList(conversations)}
                     </div>
                 </div>
                 <div class="chat-window" id="chat-window">
-                    <div style="display:flex; height:100%; justify-content:center; align-items:center; color:#888;">
-                        <p>Select a conversation to start chatting</p>
+                    <div class="chat-header">
+                        <span>Select a conversation</span>
+                    </div>
+                    <div style="display:flex; height:100%; justify-content:center; align-items:center; color:#888; background:#f0f2f5;">
+                        <p>No chat selected</p>
                     </div>
                 </div>
             </div>
@@ -1970,17 +1955,17 @@ async function loadMessagesView() {
 }
 
 function renderChatList(convs) {
-    if (!convs || convs.length === 0) return '<div style="padding:20px; color:#888;">No conversations yet.</div>';
+    if (!convs || convs.length === 0) return '<div style="padding:20px; color:#888; text-align:center;">No conversations found.</div>';
 
     return convs.map(c => `
         <div class="chat-item ${c.user_id === activeChatUserId ? 'active' : ''}" onclick="loadChatHistory(${c.user_id}, '${c.name || 'User ' + c.user_id}')">
             <div style="display:flex; justify-content:space-between;">
-                <strong style="font-size:0.95rem;">${c.name || 'User ' + c.user_id}</strong>
-                <span style="font-size:0.8rem; color:#666;">${formatSmartTime(c.time_str)}</span>
+                <strong style="font-size:0.95rem; color:var(--primary-color);">${c.name || 'User ' + c.user_id}</strong>
+                <span style="font-size:0.75rem; color:#666;">${formatSmartTime(c.time_str)}</span>
             </div>
             <div style="display:flex; justify-content:space-between; margin-top:5px;">
-                <span style="font-size:0.85rem; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px;">
-                    ${c.last_message || 'Start chatting...'}
+                <span style="font-size:0.85rem; color:#666; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:160px; display:block;">
+                    ${c.last_message ? c.last_message.substring(0, 30) : 'Start chatting...'}
                 </span>
                 ${c.unread > 0 ? `<span class="badge-unread">${c.unread}</span>` : ''}
             </div>
@@ -1990,24 +1975,45 @@ function renderChatList(convs) {
 
 async function loadChatHistory(userId, userName) {
     activeChatUserId = userId;
+    const container = document.getElementById('chat-master-container');
     const win = document.getElementById('chat-window');
+
+    // Switch to Mobile View (Hide List, Show Chat)
+    container.classList.add('mobile-chat-active');
 
     win.innerHTML = `
         <div class="chat-header">
-            <span>${userName}</span>
+            <div style="display:flex; align-items:center;">
+                <button class="chat-back-btn" onclick="backToChatList()">←</button>
+                <span style="font-size:1.1rem;">${userName}</span>
+            </div>
         </div>
         <div class="chat-messages" id="chat-msgs-scroller">
-            <p style="text-align:center; margin-top:20px;">Loading...</p>
+            <p style="text-align:center; margin-top:20px; color:#666;">Loading messages...</p>
         </div>
         <div class="chat-input-area">
-            <input type="text" class="chat-input" id="chat-input-box" placeholder="Type a message..." onkeypress="handleChatKey(event, ${userId})">
-            <button class="btn" onclick="sendChatMessage(${userId})" style="border-radius:50%; width:40px; height:40px; padding:0; display:flex; justify-content:center; align-items:center;">➤</button>
+            <input type="text" class="chat-input" id="chat-input-box" placeholder="Type a message..." autocomplete="off" onkeypress="handleChatKey(event, ${userId})">
+            <button class="btn" onclick="sendChatMessage(${userId})" style="border-radius:50%; width:45px; height:45px; padding:0; display:flex; justify-content:center; align-items:center; box-shadow:none;">➤</button>
         </div>
     `;
 
     await refreshChatMessages(userId);
-    // Refresh sidebar to highlight active
-    renderChatList(await (await authFetch('/messages/conversations')).json());
+
+    // Update sidebar to show active state
+    try {
+        const res = await authFetch('/messages/conversations');
+        if (res && res.ok) {
+            const list = await res.json();
+            const listEl = document.getElementById('chat-list');
+            if (listEl) listEl.innerHTML = renderChatList(list);
+        }
+    } catch (e) { }
+}
+
+function backToChatList() {
+    activeChatUserId = null;
+    const container = document.getElementById('chat-master-container');
+    if (container) container.classList.remove('mobile-chat-active');
 }
 
 async function refreshChatMessages(userId) {
@@ -2019,12 +2025,16 @@ async function refreshChatMessages(userId) {
         const scroller = document.getElementById('chat-msgs-scroller');
         if (!scroller) return;
 
-        scroller.innerHTML = msgs.map(m => `
-            <div class="message-bubble ${m.is_me ? 'msg-sent' : 'msg-received'}">
-                ${m.content}
-                <div class="timestamp">${formatLocalTime(m.timestamp)}</div>
-            </div>
-        `).join('');
+        if (msgs.length === 0) {
+            scroller.innerHTML = '<p style="text-align:center; margin-top:20px; color:#aaa; font-style:italic;">No messages yet. Say hello!</p>';
+        } else {
+            scroller.innerHTML = msgs.map(m => `
+                <div class="message-bubble ${m.is_me ? 'msg-sent' : 'msg-received'}">
+                    ${m.content}
+                    <div class="timestamp">${formatLocalTime(m.timestamp)}</div>
+                </div>
+            `).join('');
+        }
 
         scroller.scrollTop = scroller.scrollHeight;
     } catch (e) { console.error(e); }
@@ -2035,7 +2045,10 @@ async function sendChatMessage(userId) {
     const text = input.value.trim();
     if (!text) return;
 
-    input.value = '';
+    input.value = ''; // Clear immediately
+
+    // Optimistic Update?
+    // For now, wait for server
     try {
         await authFetch('/messages/send', {
             method: 'POST',
@@ -2054,27 +2067,38 @@ function handleChatKey(e, userId) {
 
 async function pollChatUpdates() {
     try {
+        if (!document.getElementById('chat-master-container')) return; // Stop polling if view changed
+
+        // 1. Update List
         const res = await authFetch('/messages/conversations');
-        let list = [];
         if (res && res.ok) {
-            list = await res.json();
+            const list = await res.json();
             const listEl = document.getElementById('chat-list');
+            // Only update if no user interaction to avoid jumping? 
+            // Simple innerHTML replacement is okay for now.
             if (listEl) listEl.innerHTML = renderChatList(list);
         }
 
+        // 2. Update Active Chat if open
         if (activeChatUserId) {
             const resHist = await authFetch(`/messages/history/${activeChatUserId}`);
             const msgs = await resHist.json();
             const scroller = document.getElementById('chat-msgs-scroller');
-            if (scroller) {
-                const isAtBottom = scroller.scrollHeight - scroller.scrollTop <= scroller.clientHeight + 50;
 
-                scroller.innerHTML = msgs.map(m => `
-                    <div class="message-bubble ${m.is_me ? 'msg-sent' : 'msg-received'}">
-                        ${m.content}
-                        <div class="timestamp">${formatLocalTime(m.timestamp)}</div>
-                    </div>
-                `).join('');
+            if (scroller) {
+                // Check if we should scroll (if near bottom)
+                const isAtBottom = scroller.scrollHeight - scroller.scrollTop <= scroller.clientHeight + 100;
+
+                // Naive implementation: Re-render all. 
+                // V2: Append only new.
+                if (msgs.length > 0) {
+                    scroller.innerHTML = msgs.map(m => `
+                        <div class="message-bubble ${m.is_me ? 'msg-sent' : 'msg-received'}">
+                            ${m.content}
+                            <div class="timestamp">${formatLocalTime(m.timestamp)}</div>
+                        </div>
+                    `).join('');
+                }
 
                 if (isAtBottom) scroller.scrollTop = scroller.scrollHeight;
             }
