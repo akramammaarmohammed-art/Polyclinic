@@ -2176,6 +2176,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 // Chatbot Removed by User Request
-function initGuestChat() { }
-function initChatWidget() { }
+
+// --- Fix Timestamp Formatting ---
+function formatLocalTime(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    // Format to 12-hour AM/PM
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatSmartTime(isoStr) {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    const now = new Date();
+    // If today, show time
+    if (d.toDateString() === now.toDateString()) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    // Else show date
+    return d.toLocaleDateString();
+}
 

@@ -1653,7 +1653,7 @@ def send_message(msg: MessageCreate, current_user: User = Depends(get_current_ac
         sender_id=current_user.id,
         recipient_id=msg.recipient_id,
         content=msg.content,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.utcnow() + timedelta(hours=5, minutes=30), # IST
         is_read=False
     )
     db.add(new_msg)
