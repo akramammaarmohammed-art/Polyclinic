@@ -18,7 +18,15 @@ git pull origin main
 
 # 2. Update Dependencies (if changed)
 echo "[2/3] Checking dependencies..."
-source venv/bin/activate
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+    echo "Upgrade pip..."
+    source venv/bin/activate
+    pip install --upgrade pip
+else
+    source venv/bin/activate
+fi
 pip install -r requirements.txt
 
 # 3. Restart Application
