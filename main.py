@@ -307,14 +307,20 @@ def startup():
     
     # Create initial Senior Admin if not exists
     db = SessionLocal()
-    if not db.query(User).filter(User.username == "admin").first():
-        admin = User(
-            username="admin",
-            password_hash=get_password_hash("admin123"),
-            role=UserRole.SENIOR_ADMIN,
-        )
-        db.add(admin)
-        db.commit()
+    try:
+        if not db.query(User).filter(User.username == "admin").first():
+            admin_user = User(
+                username="admin",
+                password_hash=get_password_hash("admin123"), # Change this in production!
+                role=UserRole.SENIOR_ADMIN,
+                is_active=True
+            )
+            db.add(admin_user)
+            db.commit()
+    except Exception:
+        db.rollback()
+        # Ignore if it failed (likely another worker created it)
+        pass
     db.close()
     
     # Start Email Reminder Scheduler
