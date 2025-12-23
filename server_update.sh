@@ -32,8 +32,11 @@ pip install -r requirements.txt
 # 3. Restart Application
 echo "[3/3] Restarting Server..."
 
-    nohup ./venv/bin/gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
-fi
+# Kill existing process to free port 80
+pkill gunicorn || true
+sleep 3
+
+nohup ./venv/bin/gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
 
 echo "Waiting 5 seconds for startup verification..."
 sleep 5
