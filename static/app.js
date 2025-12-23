@@ -2197,3 +2197,7 @@ function formatSmartTime(isoStr) {
     return d.toLocaleDateString();
 }
 
+// Restore compatibility stubs
+function initGuestChat() { }
+function initChatWidget() { }
+
