@@ -36,10 +36,10 @@ echo "[3/3] Restarting Server..."
 if pgrep -f "gunicorn" > /dev/null; then
     echo "Restarting Gunicorn..."
     pkill -f "gunicorn"
-    nohup gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
+    nohup ./venv/bin/gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
 else
     echo "Gunicorn was not running. Starting it..."
-    nohup gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
+    nohup ./venv/bin/gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
 fi
 
 echo "========================================"
