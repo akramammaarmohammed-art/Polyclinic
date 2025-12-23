@@ -42,6 +42,18 @@ else
     nohup ./venv/bin/gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
 fi
 
+echo "Waiting 5 seconds for startup verification..."
+sleep 5
+
+if pgrep -f "gunicorn" > /dev/null; then
+    echo "✅ SUCCESS: Server is running!"
+else
+    echo "❌ FAILURE: Server CRASHED immediately!"
+    echo "--- LAST 20 LINES OF ERROR LOG ---"
+    tail -n 20 server.log
+    echo "----------------------------------"
+fi
+
 echo "========================================"
 echo "   UPDATE COMPLETE"
 echo "========================================"
