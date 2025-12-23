@@ -207,7 +207,7 @@ class UserResponse(BaseModel):
     email: Optional[str] = None
     is_active: bool
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # --- Messaging Models & Schemas ---
 
@@ -236,7 +236,7 @@ class MessageOut(BaseModel):
     is_me: bool
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class ConversationOut(BaseModel):
     user_id: int
