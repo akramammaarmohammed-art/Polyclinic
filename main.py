@@ -1178,6 +1178,35 @@ def _make_twilio_voice_call(phone_number, otp_code):
         print(f"✗ Voice call failed: {e}")
         return False
 
+def _send_whatsapp_message(phone_number, otp_code):
+    """Send WhatsApp using Twilio (Requires WhatsApp Sandbox/Sender setup)"""
+    try:
+        sid = os.getenv("TWILIO_ACCOUNT_SID")
+        token = os.getenv("TWILIO_AUTH_TOKEN")
+        from_num = "whatsapp:" + os.getenv("TWILIO_PHONE_NUMBER") # Ensure this is a WA sender
+        
+        # If user hasn't set up WA specifically, defaulting to generic might fail if not sandbox joined
+        # But we try it as requested.
+        
+        client = TwilioClient(sid, token)
+        
+        clean = phone_number.strip().replace(" ", "").replace("-", "")
+        if not clean.startswith("+"): 
+            clean = "+" + clean 
+            
+        print(f"💬 Sending WhatsApp to {clean}...")
+        
+        msg = client.messages.create(
+            from_=from_num,
+            to="whatsapp:" + clean,
+            body=f"Your Polyclinic Verification Code is: {otp_code}"
+        )
+        print(f"✓ WhatsApp sent: {msg.sid}")
+        return True
+    except Exception as e:
+        print(f"✗ WhatsApp failed: {e}")
+        return False
+
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -1224,17 +1253,17 @@ def _send_otp_email(to_email, otp_code):
                 continue # Try next port
         
         # If we get here, ALL ports failed
-        print(f"❌ All SMTP ports failed. Network is blocked.")
-        print(f"⚠️ FALLBACK MODE: Logging OTP locally so you can proceed.")
+        print(f"❌ All SMTP ports failed. Network is blocked.", flush=True)
+        print(f"⚠️ FALLBACK MODE: Logging OTP locally so you can proceed.", flush=True)
         print(f"==========================================")
-        print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}")
+        print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}", flush=True)
         print(f"==========================================")
         return True # Return True (Success) to unblock user
 
     except Exception as e:
-        print(f"✗ Email Failed (General): {e}")
+        print(f"✗ Email Failed (General): {e}", flush=True)
         # Ensure we still succeed even on general crash
-        print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}")
+        print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}", flush=True)
         return True
 
 def send_email_core(to_email, subject, body):
