@@ -12,9 +12,6 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from enum import Enum as PyEnum
 import random
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import asyncio
 import os
 
@@ -33,9 +30,7 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Email Helper (REMOVED - Blocked by Server) ---
-# Previous email code removed to prevent confusion.
-# Using Twilio Voice OTP instead.
+# --- Email Helper ---
 
 def send_booking_confirmation(to_email: str, patient_name: str, doctor_name: str, date, time, visit_id: int):
     subject = "Appointment Confirmation - Polyclinic"
@@ -375,31 +370,9 @@ def check_and_send_reminders():
         db.close()
 
 def send_reminder_email(to_email: str, visit: PatientVisit):
-    subject = "Appointment Reminder: In 1 Hour"
-    
-    # Use real email if configured, else print
-    if "your_email" in EMAIL_SENDER or "@" not in EMAIL_SENDER:
-        print(f"Simulating Email to {to_email}: You have an appointment at {visit.time_slot}.")
-        return
-
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_SENDER
-        msg['To'] = to_email
-        msg['Subject'] = subject
-
-        body = f"Hello,\n\nThis is a reminder for your appointment today at {visit.time_slot}.\n\nPlease arrive 10 minutes early."
-        msg.attach(MIMEText(body, 'plain'))
-
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(EMAIL_SENDER, to_email, text)
-        server.quit()
-        print(f"Reminder sent to {to_email}")
-    except Exception as e:
-        print(f"Email Error: {e}")
+    subject = "Appointment Reminder: In 1 Hour - Polyclinic"
+    body = f"Hello,\n\nThis is a reminder for your appointment today at {visit.time_slot}.\n\nPlease arrive 10 minutes early."
+    send_email_core(to_email, subject, body)
 
 
 # --- Additional Schemas ---
@@ -1132,104 +1105,56 @@ import string
 def generate_otp():
     return ''.join(random.choices(string.digits, k=6))
 
-# Twilio Code Removed as per user request to use Gmail only.
 
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+# SendGrid Integration
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 def _send_otp_email(to_email, otp_code):
-    """Send OTP via Gmail SMTP (Supports SSL/TLS)"""
+    """Send OTP via SendGrid API (Port 443 - Firewall Friendly)"""
     try:
-        # Use GLOBALS (Hardcoded) to ensure it works
-        sender_email = EMAIL_SENDER
-        sender_password = EMAIL_PASSWORD
+        sg_key = os.getenv("SENDGRID_API_KEY")
+        sender_email = os.getenv("EMAIL_USER")
         
-        if not sender_email or not sender_password:
-            print("👉 MOCK EMAIL (No Creds Configured)")
-            return True # Mock Success
+        if not sg_key:
+            print("⚠️ SendGrid Key missing. Falling back to Mock.", flush=True)
+            print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}", flush=True)
+            return True
 
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = "Your Polyclinic Verification Code"
+        message = Mail(
+            from_email=sender_email,
+            to_emails=to_email,
+            subject='Your Polyclinic Verification Code',
+            plain_text_content=f'Your Verification Code is: {otp_code}\n\nThis code expires in 10 minutes.')
         
-        body = f"Your Verification Code is: {otp_code}\n\nThis code expires in 10 minutes."
-        msg.attach(MIMEText(body, 'plain'))
-        
-        # Try ports in sequence
-        ports = [465, 587, 2525]
-        for port in ports:
-            try:
-                print(f"Attempting SMTP to {to_email} on Port {port}...")
-                if port == 465:
-                    with smtplib.SMTP_SSL('smtp.gmail.com', port, timeout=15) as server:
-                        server.login(sender_email, sender_password)
-                        server.send_message(msg)
-                        print(f"✓ Email sent via Port {port}")
-                        return True
-                else:
-                    with smtplib.SMTP('smtp.gmail.com', port, timeout=15) as server:
-                        server.starttls()
-                        server.login(sender_email, sender_password)
-                        server.send_message(msg)
-                        print(f"✓ Email sent via Port {port}")
-                        return True
-            except Exception as e:
-                print(f"⚠ Port {port} Failed: {e}")
-                continue # Try next port
-        
-        # If we get here, ALL ports failed
-        print(f"❌ All SMTP ports failed. Network is blocked.", flush=True)
-        print(f"⚠️ FALLBACK MODE: Logging OTP locally so you can proceed.", flush=True)
-        print(f"==========================================")
-        print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}", flush=True)
-        print(f"==========================================")
-        return True # Return True (Success) to unblock user
+        sg = SendGridAPIClient(sg_key)
+        response = sg.send(message)
+        print(f"✓ Email Sent via SendGrid! Status: {response.status_code}", flush=True)
+        return True
 
     except Exception as e:
-        print(f"✗ Email Failed (General): {e}", flush=True)
-        # Ensure we still succeed even on general crash
-        print(f"👉 MOCK EMAIL: To={to_email} | Code={otp_code}", flush=True)
+        print(f"✗ SendGrid Failed: {e}", flush=True)
+        print(f"👉 MOCK EMAIL (Fallback): To={to_email} | Code={otp_code}", flush=True)
         return True
 
 def send_email_core(to_email, subject, body):
-    """Generic Email Sender with Mock Fallback"""
+    """Generic Email Sender via SendGrid"""
     try:
-        sender_email = EMAIL_SENDER
-        sender_password = EMAIL_PASSWORD
+        sg_key = os.getenv("SENDGRID_API_KEY")
+        sender_email = os.getenv("EMAIL_USER")
         
-        # Auto-mock if credentials missing
-        if not sender_email or not sender_password:
-             print(f"👉 MOCK EMAIL (No Creds): To={to_email} | Subject={subject}", flush=True)
-             return True
+        if not sg_key:
+            print(f"👉 MOCK EMAIL (No Key): To={to_email} | Subject={subject}", flush=True)
+            return True
 
-        msg = MIMEMultipart()
-        msg['From'] = sender_email
-        msg['To'] = to_email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        message = Mail(
+            from_email=sender_email,
+            to_emails=to_email,
+            subject=subject,
+            plain_text_content=body)
         
-        # Try ports in sequence
-        ports = [465, 587, 2525]
-        for port in ports:
-            try:
-                if port == 465:
-                    with smtplib.SMTP_SSL('smtp.gmail.com', port, timeout=10) as server:
-                        server.login(sender_email, sender_password)
-                        server.send_message(msg)
-                        return True
-                else:
-                    with smtplib.SMTP('smtp.gmail.com', port, timeout=10) as server:
-                        server.starttls()
-                        server.login(sender_email, sender_password)
-                        server.send_message(msg)
-                        return True
-            except:
-                continue
-        
-        # Fallback
-        print(f"👉 MOCK EMAIL (Network Block): To={to_email} | Subject={subject}", flush=True)
+        sg = SendGridAPIClient(sg_key)
+        sg.send(message)
         return True
 
     except Exception as e:
@@ -1634,11 +1559,9 @@ def get_dashboard_stats(current_user: User = Depends(get_current_active_user), d
 def read_root():
     return FileResponse('static/index.html')
 
-# --- Background Tasks ---
-
-def send_reminder_email(to_email: str, visit: PatientVisit):
-    subject = "Appointment Reminder: In 1 Hour - Polyclinic"
-    body = f"Hello,\n\nThis is a reminder for your appointment today at {visit.time_slot}.\n\nPlease arrive 10 minutes early."
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse('static/index.html') # Just return index or empty. Better: 204 No Content or bytes.
 
 # --- Routes: Messaging (V3) ---
 
@@ -1763,44 +1686,5 @@ def get_all_users_for_chat(current_user: User = Depends(get_current_active_user)
 Base.metadata.create_all(bind=engine)
 
 
-def check_and_send_reminders():
-    db = SessionLocal()
-    try:
-        now = datetime.now()
-        target = now + timedelta(hours=1)
-        t_date = target.date()
-        
-        # Simple check for visits around that time (within 2 mins window)
-        visits = db.query(PatientVisit).filter(PatientVisit.visit_date == t_date).all()
-        
-        for v in visits:
-            v_time = datetime.combine(date.min, v.time_slot) - datetime.combine(date.min, time.min)
-            t_time = datetime.combine(date.min, target.time()) - datetime.combine(date.min, time.min)
-            
-            # If difference is small (e.g. < 2 mins)
-            diff = abs((v_time - t_time).total_seconds())
-            if diff < 120: 
-                recipient = v.guest_email
-                if not recipient and v.creator:
-                    recipient = v.creator.email
-                
-                if recipient:
-                    send_reminder_email(recipient, v)
-    except Exception as e:
-        print(f"Reminder Check Error: {e}")
-    finally:
-        db.close()
-
-async def background_loop():
-    print("Background Tasks Started (Reminders + Cleanup)")
-    while True:
-        try:
-            check_and_send_reminders()
-            cleanup_expired_otps()
-        except Exception as e:
-            print(f"Background Loop Error: {e}")
-        await asyncio.sleep(60)
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(background_loop())
+# Auto-Upgrade DB
+Base.metadata.create_all(bind=engine)

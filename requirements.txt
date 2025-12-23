@@ -9,3 +9,5 @@ python-multipart
 python-dotenv
 gunicorn
 email-validator
+sendgrid
+aiofiles
