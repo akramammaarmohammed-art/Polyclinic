@@ -30,19 +30,20 @@ fi
 pip install -r requirements.txt
 
 # 3. Restart Application
-echo "[3/3] Restarting Server..."
+echo "[3/3] Restarting Server (Internal Port 8000)..."
 
-# Kill existing process to free port 80
+# Kill existing process
 pkill gunicorn || true
-sleep 3
+sleep 2
 
-nohup ./venv/bin/gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:80 > server.log 2>&1 &
+# Bind to localhost:8000 (Caddy will handle Port 80/443)
+nohup ./venv/bin/gunicorn main:app --workers 1 --worker-class uvicorn.workers.UvicornWorker --bind 127.0.0.1:8000 > server.log 2>&1 &
 
 echo "Waiting 5 seconds for startup verification..."
 sleep 5
 
 if pgrep -f "gunicorn" > /dev/null; then
-    echo "✅ SUCCESS: Server is running!"
+    echo "✅ SUCCESS: App running on Port 8000 (Waiting for Caddy)"
 else
     echo "❌ FAILURE: Server CRASHED immediately!"
     echo "--- LAST 20 LINES OF ERROR LOG ---"
