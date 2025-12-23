@@ -1201,7 +1201,7 @@ def send_email_core(to_email, subject, body):
         
         # Auto-mock if credentials missing
         if not sender_email or not sender_password:
-             print(f"👉 MOCK EMAIL (No Creds): To={to_email} | Subject={subject}")
+             print(f"👉 MOCK EMAIL (No Creds): To={to_email} | Subject={subject}", flush=True)
              return True
 
         msg = MIMEMultipart()
@@ -1229,11 +1229,11 @@ def send_email_core(to_email, subject, body):
                 continue
         
         # Fallback
-        print(f"👉 MOCK EMAIL (Network Block): To={to_email} | Subject={subject}")
+        print(f"👉 MOCK EMAIL (Network Block): To={to_email} | Subject={subject}", flush=True)
         return True
 
     except Exception as e:
-        print(f"👉 MOCK EMAIL (Error): To={to_email} | Error={e}")
+        print(f"👉 MOCK EMAIL (Error): To={to_email} | Error={e}", flush=True)
         return True
 
 @app.post("/auth/otp/send")
